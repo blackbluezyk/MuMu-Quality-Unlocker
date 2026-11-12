@@ -1,0 +1,15 @@
+# Local state / snapshots / test output (never publish)
+backups/
+test-results/
+results/
+*.bak_original
+*.bak_*
+picfx-*.json
+picfx-*.json.sha256
+*.log
+*.tmp
+*.stdout.txt
+*.stderr.txt
+__pycache__/
+.DS_Store
+Thumbs.db

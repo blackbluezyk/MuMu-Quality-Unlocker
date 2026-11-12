@@ -1,0 +1,8 @@
+* text=auto eol=lf
+*.ps1 text eol=lf
+*.md text eol=lf
+*.png binary
+*.zip binary
+# Keep concurrently published portable sources/downloads byte-for-byte intact.
+oneclick/** -text
+downloads/** -text

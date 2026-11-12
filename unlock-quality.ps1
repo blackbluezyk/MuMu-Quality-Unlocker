@@ -4,11 +4,9 @@
     of MuMu Player (NetEase emulator) instances through the official MuMuManager CLI.
 
 .DESCRIPTION
-    MuMu Player gates its "HD / premium" resolution presets behind a membership in the
-    GUI, but the underlying rendering parameters are plain local configuration values and
-    are not validated against membership state. This script writes those values through
-    the vendor's own command line tool, optionally restarts the instance, and can roll
-    everything back from an automatic backup.
+    Adjust local display settings through the vendor CLI, with backup and readback.
+    This is not proof that a game-specific "ultimate graphics" feature is enabled.
+    Configured resolution and frame-rate limits are not measured game quality/FPS.
 
     It does NOT modify any executable, does NOT patch / inject / hook any process, and
     does NOT touch account, membership or entitlement data. Only local display settings.
@@ -43,6 +41,13 @@
 .PARAMETER DryRun
     Show what would change without writing anything.
 
+.PARAMETER Status
+    Read configured display values and, when running, Android display readback.
+    Never writes settings, creates backups, starts or restarts an instance.
+
+.PARAMETER AsJson
+    Machine-readable output. Requires -Status.
+
 .EXAMPLE
     .\unlock-quality.ps1
 
@@ -75,7 +80,9 @@ param(
 
     [switch]$Restore,
     [switch]$NoRestart,
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$Status,
+    [switch]$AsJson
 )
 
 $ErrorActionPreference = 'Stop'
@@ -123,7 +130,7 @@ function Find-MuMuInstall {
 }
 
 function Initialize-MuMu {
-    param([string]$Path)
+    param([string]$Path, [switch]$Quiet)
 
     if (-not $Path) { $Path = Find-MuMuInstall }
     if (-not $Path) {
@@ -137,15 +144,17 @@ function Initialize-MuMu {
 
     $script:Root = (Resolve-Path $Path).Path
     $script:ManagerPath = (Resolve-Path $manager).Path
-    Write-Ok "Install root : $($script:Root)"
-    Write-Ok "Manager CLI  : $($script:ManagerPath)"
+    if (-not $Quiet) {
+        Write-Ok "Install root : $($script:Root)"
+        Write-Ok "Manager CLI  : $($script:ManagerPath)"
+    }
 }
 
 # ---------------------------------------------------------------------------
 # CLI wrapper
 # ---------------------------------------------------------------------------
 function Invoke-Manager {
-    param([string[]]$CliArgs)
+    param([string[]]$CliArgs, [switch]$RawText)
 
     $raw = & $script:ManagerPath @CliArgs 2>&1 | Out-String
     $exitCode = $LASTEXITCODE
@@ -155,6 +164,7 @@ function Invoke-Manager {
     try { $response = $trimmed | ConvertFrom-Json -ErrorAction Stop }
     catch { $response = $trimmed }
     Assert-ManagerResponse -Response $response
+    if ($RawText) { return $trimmed }
     return $response
 }
 
@@ -239,6 +249,46 @@ function Resolve-Resolution {
     }
     $table = Get-PresetTable
     return $table[$Preset]
+}
+
+function Get-DisplayStatus {
+    param([string]$Index, [bool]$Running)
+    $values = Invoke-Manager @('setting', '-v', $Index,
+        '--key', 'resolution_mode', '--key', 'resolution_width.custom',
+        '--key', 'resolution_height.custom', '--key', 'resolution_dpi.custom', '--key', 'max_frame_rate')
+    if ($null -eq $values -or $values -is [string]) { throw 'Invalid display settings response.' }
+    $parsed = @{}
+    foreach ($key in @('resolution_width.custom', 'resolution_height.custom', 'resolution_dpi.custom', 'max_frame_rate')) {
+        $number = [double]0
+        if (-not [double]::TryParse([string]$values.$key, [Globalization.NumberStyles]::Float,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$number) -or
+            [double]::IsNaN($number) -or [double]::IsInfinity($number) -or $number -le 0) {
+            throw "Invalid or missing display field: $key"
+        }
+        $parsed[$key] = $number
+    }
+    $runtime = $null; $runtimeError = $null; $matches = $false
+    if ($Running) {
+        try {
+            $size = [string](Invoke-Manager @('adb', '-v', $Index, '-c', 'shell wm size'))
+            $density = [string](Invoke-Manager @('adb', '-v', $Index, '-c', 'shell wm density'))
+            $sizes = [regex]::Matches($size, '(?:Physical|Override) size:\s*(\d+)x(\d+)')
+            $densities = [regex]::Matches($density, '(?:Physical|Override) density:\s*(\d+)')
+            if (-not $sizes.Count -or -not $densities.Count) { throw 'Unrecognized Android display readback.' }
+            $s = $sizes[$sizes.Count - 1]; $d = $densities[$densities.Count - 1]
+            $rw = [int]$s.Groups[1].Value; $rh = [int]$s.Groups[2].Value; $rd = [int]$d.Groups[1].Value
+            $runtime = [pscustomobject]@{ Width=$rw; Height=$rh; Dpi=$rd }
+            $cw=$parsed['resolution_width.custom']; $ch=$parsed['resolution_height.custom']
+            $matches = ((($rw -eq $cw -and $rh -eq $ch) -or ($rw -eq $ch -and $rh -eq $cw)) -and $rd -eq $parsed['resolution_dpi.custom'])
+        } catch { $runtimeError = $_.Exception.Message }
+    }
+    [pscustomobject]@{
+        InstanceIndex=$Index; Running=$Running; ConfiguredMode=[string]$values.resolution_mode
+        ConfiguredWidth=$parsed['resolution_width.custom']; ConfiguredHeight=$parsed['resolution_height.custom']
+        ConfiguredDpi=$parsed['resolution_dpi.custom']; ConfiguredFpsLimit=$parsed['max_frame_rate']
+        AndroidDisplay=$runtime; RuntimeMatchesConfiguredDisplay=$matches; RuntimeReadbackError=$runtimeError
+        ActualGameFps=$null; GameGraphicsPreset=$null; GameSpecificEffectVerified=$false
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -413,7 +463,25 @@ function Restart-Instance {
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+# Loading helpers must not implicitly apply the default display preset.
+if ($MyInvocation.InvocationName -eq '.') { return }
 try {
+    if ($AsJson -and -not $Status) { throw '-AsJson requires -Status.' }
+    if ($Status) {
+        if ($Restore -or $Width -or $Height -or $Dpi -or $FrameRate -or $PSBoundParameters.ContainsKey('Preset')) {
+            throw '-Status cannot be combined with display changes or -Restore.'
+        }
+        Initialize-MuMu -Path $InstallPath -Quiet
+        $rows = @(foreach ($t in @(Resolve-TargetIndexes -Selector $VmIndex)) {
+            Get-DisplayStatus -Index $t.Index -Running $t.Running
+        })
+        if ($AsJson) { ConvertTo-Json -InputObject $rows -Depth 6 }
+        else {
+            $rows | Format-List
+            Write-Warn2 'Read-only status. A frame-rate limit is not measured FPS; game-specific graphics effects are not verified.'
+        }
+        return
+    }
     Write-Host ''
     Write-Host '  MuMu Quality Unlocker' -ForegroundColor White
     Write-Host '  local rendering settings via official MuMuManager CLI' -ForegroundColor DarkGray
