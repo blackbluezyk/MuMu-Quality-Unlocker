@@ -20,6 +20,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6, verified upstream tag
         with:
           persist-credentials: false
-      - name: Isolated regression tests (no installed MuMu required)
-        shell: ${{ matrix.shell }}
+      - name: Isolated regression tests (Windows PowerShell 5.1)
+        if: matrix.shell == 'powershell'
+        shell: powershell
+        run: ./tests/Run-All.ps1 -OutDirectory (Join-Path $env:RUNNER_TEMP 'mumu-tests')
+      - name: Isolated regression tests (PowerShell 7)
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
         run: ./tests/Run-All.ps1 -OutDirectory (Join-Path $env:RUNNER_TEMP 'mumu-tests')
