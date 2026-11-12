@@ -1,8 +1,21 @@
 # MuMu Quality Unlocker
 
-Raise the rendering resolution and frame rate of **MuMu Player** (NetEase Android emulator) instances — including the presets the GUI marks as membership-only — by writing plain local configuration through the vendor's own command line tool.
+Configure local rendering resolution and frame-rate limits of **MuMu Player** (NetEase Android emulator) instances through the vendor CLI. A configured FPS limit is not a measured game FPS.
 
-No executable patching, no process injection, no memory hooking, no account or entitlement data touched. Only display settings.
+The main `unlock-quality.ps1` script changes display settings only. No executable patching, process injection, memory hooking, account or entitlement modification. The separate one-click tool below controls a local Naruto picfx initialization property.
+
+
+## Windows 一键懒人包 · 免安装
+
+**[下载 MuMuLocalQuality-v0.1.0.zip](https://github.com/blackbluezyk/MuMu-Quality-Unlocker/raw/refs/heads/main/downloads/MuMuLocalQuality-v0.1.0.zip)** · [SHA256 校验](downloads/MuMuLocalQuality-v0.1.0.zip.sha256) · [使用说明与源码](oneclick/README.md)
+
+先启动 MuMu，解压后双击 **MuMuLocalQuality.exe**，选好实例编号，点 **一键开启**；随后手动重启游戏。提供状态读取、关闭、带校验和的备份恢复。无需 Python 或管理员权限。程序未数字签名，请核对源码与校验值，不需要关闭安全防护。
+
+这项独立工具针对《火影忍者》的本地 `picfx` 初始化，不等于主脚本的分辨率设置，也不激活会员账号或保证 VIP 界面开关亮起。高清缓存最多可能占 20 GB，关闭可能清理缓存。
+
+**用户实测反馈（2026-11-12）：项目维护者确认本机开启后画质有提升。** 这是用户实测，不是脚本自动验证纹理处理；已知本机环境为 MuMu 6.8.8.0 / Android 15，其他版本未保证通用。程序只承诺检查写后读回，不把 `on` 等同于所有画质效果已验证。
+
+懒人包后端在 Windows PowerShell 5.1、PowerShell 7 各通过 22/22 项固定夹具测试；打包测试不修改真实模拟器。构建与完整源码见 [oneclick](oneclick/)。
 
 ---
 
