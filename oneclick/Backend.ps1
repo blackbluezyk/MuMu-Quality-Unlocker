@@ -1,6 +1,6 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
-    [ValidateSet('Status','Enable','Disable','Restore')][string]$Action='Status',
+    [ValidateSet('List','Status','Enable','Disable','Restore')][string]$Action='Status',
     [ValidatePattern('^(0|[1-9][0-9]*)$')][string]$VmIndex='0',
     [string]$InstallPath,
     [string]$BackupDirectory=(Join-Path $env:LOCALAPPDATA 'MuMuLocalQuality\backups'),
@@ -13,33 +13,92 @@ $OutputEncoding=[Text.UTF8Encoding]::new($false)
 $script:Property='nemud.tool.com.tencent.KiHan.picfx'
 $script:Package='com.tencent.KiHan'
 
+function Resolve-ManagerCandidate([string]$Root) {
+    if (-not $Root) {return}
+    foreach ($p in @([IO.Path]::Combine($Root,'nx_main\MuMuManager.exe'),[IO.Path]::Combine($Root,'MuMuManager.exe'))) {
+        if ((Split-Path (Split-Path $p -Parent) -Leaf) -ieq 'nx_main' -and (Test-Path -LiteralPath $p -PathType Leaf -ErrorAction SilentlyContinue)) {
+            return (Resolve-Path -LiteralPath $p).Path
+        }
+    }
+}
+
 function Find-Manager([string]$Root) {
     if ($Root) {
-        $p=Join-Path $Root 'nx_main\MuMuManager.exe'
-        if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { throw 'MuMuManager.exe was not found under the selected install folder.' }
-        return (Resolve-Path -LiteralPath $p).Path
+        $p=Resolve-ManagerCandidate $Root
+        if (-not $p) { throw '所选目录未找到 nx_main\MuMuManager.exe，请选择正在使用的 MuMu 安装目录（也可选择 nx_main）。' }
+        return $p
     }
+    $candidates=New-Object 'System.Collections.Generic.List[string]'
     foreach ($key in @('HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*','HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*','HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*')) {
         foreach ($entry in @(Get-ItemProperty $key -ErrorAction SilentlyContinue | Where-Object {$_.DisplayName -match 'MuMu' -and $_.InstallLocation})) {
-            $p=Join-Path $entry.InstallLocation 'nx_main\MuMuManager.exe'
-            if (Test-Path -LiteralPath $p -PathType Leaf) { return (Resolve-Path -LiteralPath $p).Path }
+            $p=Resolve-ManagerCandidate $entry.InstallLocation
+            if ($p) {$candidates.Add($p)}
         }
     }
     foreach ($root in @('E:\MuMuPlayer','D:\MuMuPlayer','C:\Program Files\Netease\MuMuPlayer','C:\Program Files\MuMuPlayer-12.0')) {
-        $p=Join-Path $root 'nx_main\MuMuManager.exe'
-        if (Test-Path -LiteralPath $p -PathType Leaf) { return (Resolve-Path -LiteralPath $p).Path }
+        $p=Resolve-ManagerCandidate $root
+        if ($p) {$candidates.Add($p)}
     }
-    throw 'MuMu was not found. Select its install folder; this package does not install MuMu.'
+    return Select-ManagerCandidate @($candidates.ToArray())
+}
+
+function Select-ManagerCandidate([string[]]$Candidates) {
+    $unique=@($Candidates | Where-Object {$_} | Sort-Object -Unique)
+    if ($unique.Count -gt 1) {throw ('检测到多份 MuMu 安装，不能自动猜选。请点“选择”指定正在使用的安装目录：'+($unique -join '; '))}
+    if ($unique.Count -eq 1) {return $unique[0]}
+    throw '未找到 MuMu。请点“选择”指定正在使用的安装目录；本工具不会安装模拟器。'
+}
+
+function Assert-ManagerReply([string]$Text,[long]$ExitCode) {
+    $parsed=$null
+    try {$parsed=$Text|ConvertFrom-Json -ErrorAction Stop} catch {}
+    $errorCode=$ExitCode
+    if ($parsed -and $parsed -isnot [array]) {
+        foreach ($field in @('errcode','error_code')) {
+            if ($parsed.PSObject.Properties[$field] -and [string]$parsed.$field -ne '0') {$errorCode=-1;break}
+        }
+    }
+    if ($errorCode -ne 0) {
+        if ($Text -match 'player index not found' -or $ExitCode -eq -200 -or ($parsed -and [string]$parsed.errcode -eq '-200')) {
+            throw ('找不到所选实例（MuMu -200）。请刷新实例列表，重新选择；若列表不符，请选择正在运行的 MuMu 安装目录。原始返回：'+$Text)
+        }
+        throw "MuMuManager 操作失败（exit $ExitCode）：$Text"
+    }
 }
 
 function Invoke-MuMu([string[]]$Arguments) {
     $text=(& $script:Manager @Arguments 2>&1 | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0) { throw "MuMuManager exit ${LASTEXITCODE}: $text" }
-    $parsed=$null
-    try { $parsed=$text|ConvertFrom-Json -ErrorAction Stop } catch {}
-    if ($parsed -and $parsed.PSObject.Properties['error_code'] -and $parsed.error_code -ne 0) { throw "MuMuManager error: $text" }
-    if ($text -match '\b(error|failed|failure)\b') { throw "MuMuManager rejected operation: $text" }
+    Assert-ManagerReply $text $LASTEXITCODE
     return $text
+}
+
+function Assert-InstanceInfo($Info,[string]$Index) {
+    if ($null -eq $Info -or $Info -isnot [pscustomobject] -or
+        -not $Info.PSObject.Properties['index'] -or [string]$Info.index -cne $Index -or
+        -not $Info.PSObject.Properties['is_android_started'] -or $Info.is_android_started -isnot [bool]) {
+        throw "实例 $Index 的身份或运行状态无法确认，请刷新列表。"
+    }
+    Assert-ManagerReply ($Info|ConvertTo-Json -Depth 8 -Compress) 0
+}
+
+function Get-Instances {
+    $text=Invoke-MuMu @('info','-v','all')
+    $listing=$text|ConvertFrom-Json -ErrorAction Stop
+    if ($null -eq $listing -or $listing -isnot [pscustomobject] -or $listing -is [ValueType] -or $listing -is [string]) {throw '实例列表格式不受支持；请检查 MuMu 版本与安装目录。'}
+    $items=@()
+    foreach ($entry in $listing.PSObject.Properties) {
+        $number=0
+        if ($entry.Name -notmatch '^(0|[1-9][0-9]*)$' -or -not [int]::TryParse($entry.Name,[ref]$number)) {throw '实例列表含无效编号，已停止；不会猜选实例。'}
+        $i=$entry.Value
+        Assert-InstanceInfo $i $entry.Name
+        $name=if ($i.name -is [string] -and $i.name) {$i.name} else {'实例 '+$entry.Name}
+        $items += [pscustomobject]@{Index=$entry.Name;Name=$name;Running=$i.is_android_started;AndroidVersion=[string]$i.android_version}
+    }
+    return $items | Sort-Object {[int]$_.Index}
+}
+
+function Get-InstanceCatalog {
+    [pscustomobject]@{Action='List';Manager=$script:Manager;Instances=@(Get-Instances);Written=$false}
 }
 
 function Assert-Value([AllowEmptyString()][string]$Value) {
@@ -103,13 +162,17 @@ function Read-Snapshot([string]$Path,[string]$Index,[string]$Android) {
 
 function Run-Action([string]$Operation,[string]$Index,[string]$Directory,[string]$RestorePath) {
     if ($Index -notmatch '^(0|[1-9][0-9]*)$') {throw 'Invalid instance index.'}
+    $available=@(Get-Instances)
+    if (-not ($available | Where-Object {$_.Index -ceq $Index})) {
+        throw ('实例编号 '+$Index+' 不在当前安装的列表中。请刷新并重新选择；可用编号：'+($available.Index -join ', ')+ '。若列表为空或不符，请核对 MuMu 安装目录。')
+    }
     $infoText=Invoke-MuMu @('info','-v',$Index)
     $info=$infoText|ConvertFrom-Json -ErrorAction Stop
-    if ($null -eq $info -or [string]$info.index -cne $Index -or -not $info.PSObject.Properties['is_android_started']) {throw 'Instance identity/readiness could not be confirmed.'}
+    Assert-InstanceInfo $info $Index
     $running=($info.is_android_started -eq $true)
     $before=$null;$after=$null;$desired=$null;$saved=$null;$written=$false
     if ($running) {$before=Read-NativeValue $Index;$after=$before}
-    elseif ($Operation -ne 'Status') {throw 'Start the selected MuMu instance first. No auto-start or restart was performed.'}
+    elseif ($Operation -ne 'Status') {throw '所选实例尚未启动，请先手动启动，再刷新列表；未自动启动或重启。'}
     switch ($Operation) {
         'Status' {}
         'Enable' {$desired='on'}
@@ -128,6 +191,6 @@ function Run-Action([string]$Operation,[string]$Index,[string]$Directory,[string
 if ($MyInvocation.InvocationName -eq '.') {return}
 try {
     $script:Manager=Find-Manager $InstallPath
-    $answer=Run-Action $Action $VmIndex $BackupDirectory $BackupPath
+    $answer=if ($Action -eq 'List') {Get-InstanceCatalog} else {Run-Action $Action $VmIndex $BackupDirectory $BackupPath}
     if ($AsJson) {$answer|ConvertTo-Json -Depth 4} else {$answer|Format-List}
 } catch {[Console]::Error.WriteLine($_.Exception.Message);exit 1}

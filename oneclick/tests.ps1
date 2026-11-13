@@ -11,6 +11,7 @@ function Reset-Mock {
 function Invoke-MuMu([string[]]$Arguments) {
     $script:Calls+=,($Arguments)
     if ($script:NativeFailure) {throw 'Fixture CLI error'}
+    if ($Arguments[0] -eq 'info' -and $Arguments[2] -eq 'all') {return (@{'0'=@{index='0';is_android_started=$script:Running;android_version='15.0';name='fixture';error_code=0}}|ConvertTo-Json -Compress)}
     if ($Arguments[0] -eq 'info') {return (@{index=$Arguments[2];is_android_started=$script:Running;android_version='15.0';error_code=0}|ConvertTo-Json -Compress)}
     Assert ($Arguments[0] -eq 'sh') 'Must use native sh, not adb'
     if ($Arguments[4] -eq ('getprop '+$script:Property)) {return $script:Native}

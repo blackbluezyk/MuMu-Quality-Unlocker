@@ -21,17 +21,21 @@
 
 ## Windows 一键懒人包 · 免安装
 
-**[下载 MuMuLocalQuality-v0.1.0.zip](https://github.com/blackbluezyk/MuMu-Quality-Unlocker/raw/refs/heads/main/downloads/MuMuLocalQuality-v0.1.0.zip)** · [SHA256 校验](downloads/MuMuLocalQuality-v0.1.0.zip.sha256) · [使用说明与源码](oneclick/README.md)
+**[下载 MuMuLocalQuality-v0.2.0.zip](https://github.com/blackbluezyk/MuMu-Quality-Unlocker/raw/refs/heads/main/downloads/MuMuLocalQuality-v0.2.0.zip)** · [SHA256 校验](downloads/MuMuLocalQuality-v0.2.0.zip.sha256) · [使用说明与源码](oneclick/README.md)
 
-先启动 MuMu，解压后双击 **MuMuLocalQuality.exe**，选好实例编号，点 **一键开启**；随后手动重启游戏。提供状态读取、关闭、带校验和的备份恢复。无需 Python 或管理员权限。程序未数字签名，请核对源码与校验值，不需要关闭安全防护。
+先启动 MuMu，解压新版 ZIP 后双击 **MuMuLocalQuality.exe**，点 **刷新实例**，在下拉列表中按名称和运行状态选择实际实例，再点 **一键开启**；随后手动重启游戏。列表不符时点“选择”指定正在使用的 MuMu 安装目录（也支持其 `nx_main` 子目录）。多个实例时不会默认猜选 `0`；多份安装时要求明确选择目录。提供状态读取、关闭、带校验和的备份恢复。无需 Python 或管理员权限。程序未数字签名，请核对源码与校验值，不需要关闭安全防护。
 
 这项独立工具针对《火影忍者》的本地 `picfx` 初始化，不等于主脚本的分辨率设置，也不激活会员账号或保证 VIP 界面开关亮起。高清缓存最多可能占 20 GB，关闭可能清理缓存。
 
 **用户实测反馈（2026-11-12）：项目维护者确认本机开启后画质有提升。** 这是用户实测，不是脚本自动验证纹理处理；已知本机环境为 MuMu 6.8.8.0 / Android 15，其他版本未保证通用。程序只承诺检查写后读回，不把 `on` 等同于所有画质效果已验证。
 
-懒人包后端在 Windows PowerShell 5.1、PowerShell 7 各通过 22/22 项固定夹具测试；打包测试不修改真实模拟器。构建与完整源码见 [oneclick](oneclick/)。
+懒人包增加实例枚举、缺失编号、实例移除/停止、错误码与安装目录歧义测试，并包含 EXE 编译/内嵌资源/UI 选择规则及隔离 CLI 进程检查。测试不修改真实模拟器。构建与完整源码见 [oneclick](oneclick/)。
 
-说明：懒人包组件版本仍为 0.1.0，本次命令行/文档更新为项目 0.2.0；保留原下载包与源码。懒人包与命令行 picfx 快照格式不同，请分别使用创建该快照的工具恢复。
+说明：懒人包组件更新为 **0.2.0**，项目版本为 **0.2.1**；旧 0.1.0 压缩包仅保留为历史归档，不要与新版文件混用。懒人包与命令行 picfx 快照格式不同，请分别使用创建该快照的工具恢复。
+
+### 遇到 `-200 / player index not found`
+
+这表示当前安装环境找不到选中的实例，不是会员/显卡错误的证据。新版会先枚举并校验实际编号；请刷新列表并选择正确实例。若列表为空或与正在运行的模拟器不符，指定那份模拟器的安装目录再刷新。不要盲猜编号 1、2，也不需要管理员权限。实例在列表刷新后被删除或停止，操作会拒绝继续并要求重新刷新；不会自动改选其他实例。
 
 ## 环境
 

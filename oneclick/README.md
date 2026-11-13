@@ -1,23 +1,31 @@
-# MuMu 本地画质助手 · 免安装懒人包 0.1.0
+# MuMu 本地画质助手 · 免安装懒人包 0.2.0
 
 ## 怎么用
 
 1. 先安装并启动 MuMu 模拟器，准备好《火影忍者》。本包不安装 MuMu 或游戏。
 2. 解压整个 ZIP，双击 `MuMuLocalQuality.exe`。
-3. 默认实例编号为 `0`。多开用户按自己的实例编号选择；安装目录留空会自动查找，找不到时点“选择”。
-4. 点击 **一键开启**。工具先保存改变前的值，再写入并读回本地 `picfx` 初始化参数。
-5. 按提示 **手动重启游戏**，进入相同场景观察画质。
+3. 点击 **刷新实例**，从下拉列表选择实际的 **编号 + 名称 + 运行状态**。只存在一个实例时可自动选中该唯一实例（不要求编号为 0）；存在多个实例时必须主动选择。
+4. 安装目录留空会尝试查找；若有多份安装或列表不符，点“选择”指定正在运行的 MuMu 安装根目录，或其 `nx_main` 子目录。修改目录会清空旧实例选择；刷新后按返回的真实安装目录绑定后续操作。
+5. 点击 **一键开启**。工具先保存改变前的值，再写入并读回本地 `picfx` 初始化参数。
+6. 按提示 **手动重启游戏**，进入相同场景观察画质。
 
 无需 Python、Node.js、管理员权限或额外安装程序。依赖 Windows 10/11 自带的 Windows PowerShell 5.1 和 .NET Framework 4.x。
 
-### 四个按钮
+### 操作按钮
 
+- **刷新实例**：仅执行 `MuMuManager info -v all`，显示真实实例；不读写 picfx，不创建快照，不自动启动/重启。
 - **一键开启**：把选中实例的 `nemud.tool.com.tencent.KiHan.picfx` 设置为 `on`。已是 `on` 时不重复写入。
 - **关闭**：设置为 `off`；相关高清缓存可能随之被清理。
 - **读取状态**：只读，不创建备份，不改设置，不启动或重启游戏。
 - **恢复备份…**：选择本工具生成的 JSON。必须保留同名 `.sha256` 文件；校验安装位置、实例编号、Android 引擎和固定属性后才恢复。
 
 备份在 `%LOCALAPPDATA%\MuMuLocalQuality\backups`，每次实际改变前都创建独立快照。它保存的是**操作前的值**，不一定是原厂默认值；恢复也会先保存恢复前的状态。
+
+## `-200 / player index not found` 排查
+
+旧版默认填写 0，不一定是实际实例编号。新版先列出实例并在每次操作前重新校验；如果该实例不存在、刚被删除或已经停止，拒绝写入，不自动换成其他实例。请刷新后重选；列表为空或不符时核对安装目录，不要盲试 1、2。错误提示保留原始返回，便于反馈。
+
+旧 0.1.0 ZIP 仅作历史归档。请完整解压新版，不与旧版 EXE 或脚本混用。后端快照格式不变，原有合法备份可继续按同一安装/实例/引擎校验恢复。
 
 ## 实测与限制
 
@@ -35,7 +43,7 @@
 
 EXE 内嵌本目录 `Backend.ps1`，执行前校验其 SHA256。无自动联网下载、无账号采集、无管理员提权。只有 MuMu 和游戏本身可能按其正常行为联网。
 
-源码包含 `Launcher.cs`、`Backend.ps1`、`app.manifest`、`build.ps1` 和 `tests.ps1`。
+源码包含 `Launcher.cs`、`Backend.ps1`、`app.manifest`、`build.ps1`、`tests.ps1`、`instance-tests.ps1` 和 `smoke.ps1`。
 
 ```powershell
 # 编译；不改模拟器设置
@@ -44,11 +52,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
 # 固定夹具测试；不调用真实 MuMu
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tests.ps1
 
-# 命令行只读状态
-powershell -NoProfile -ExecutionPolicy Bypass -File .\Backend.ps1 -Action Status -AsJson
+# 实例列表检查和编译后的 GUI/CLI 隔离冒烟测试
+powershell -NoProfile -ExecutionPolicy Bypass -File .\instance-tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\smoke.ps1
+
+# 命令行只读实例列表（不会默认操作实例 0）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Backend.ps1 -Action List -AsJson
+
+# 命令行只读状态（显式填写实际实例编号）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\Backend.ps1 -Action Status -VmIndex ACTUAL_INDEX -AsJson
 ```
 
-已在 Windows PowerShell 5.1 和 PowerShell 7 分别通过 22/22 项夹具测试；EXE 完成内嵌资源校验和界面渲染检查。这些测试不等于所有环境下的真实画质验证。
+测试包含原有 22 项后端用例、新增 34 项实例选择用例，以及 4 项编译 EXE/UI 绑定和真实子进程协议冒烟检查。冒烟测试使用临时构建的假 CLI，禁止 native 设置访问，不调用安装的 MuMu。项目级测试还保留显示参数与 picfx 的 59 项用例；Windows PowerShell 5.1 / PowerShell 7 均运行。自动化测试不等于用户机器上的实际画质验证。
 
 项目：https://github.com/blackbluezyk/MuMu-Quality-Unlocker
 
